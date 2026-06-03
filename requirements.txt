@@ -1,3 +1,6 @@
 flask
-gunicorn
 flask-socketio
+gunicorn
+eventlet
+numpy
+scipy
