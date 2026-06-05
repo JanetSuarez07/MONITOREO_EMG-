@@ -55,15 +55,16 @@ const ctx = document.getElementById('emgChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: Array(800).fill(''),
+            labels: Array(1500).fill(''),
             datasets: [{
-                data: Array(800).fill(0),
+                data: Array(1500).fill(0),
                 borderColor: '#0d6efd',
                 borderWidth: 2,
                 tension: 0.3,
                 pointRadius: 0
             }]
         },
+
         options: {
             responsive: true,
             animation: false,
