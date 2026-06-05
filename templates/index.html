@@ -46,8 +46,10 @@
 </div>
 
 <script>
-    const ctx = document.getElementById('emgChart').getContext('2d');
-    const socket = io();
+    
+const socket = io({ transports: ['polling', 'websocket'] });
+
+const ctx = document.getElementById('emgChart').getContext('2d');
     
     // Configuración de la Gráfica con Anotaciones
     const chart = new Chart(ctx, {
