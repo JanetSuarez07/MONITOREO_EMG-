@@ -1,71 +1,49 @@
 import asyncio
 import websockets
 import socketio
-import numpy as np
-from scipy.signal import butter, lfilter, iirnotch, lfilter_zi
 
-# Configuración de Filtros
-FS = 500
-OFFSET = 1795
-b_band, a_band = butter(2, [20/(FS*0.5), 200/(FS*0.5)], btype='band')
-b_notch, a_notch = iirnotch(60/(FS*0.5), 30)
-
-zi_notch = lfilter_zi(b_notch, a_notch)
-zi_band = lfilter_zi(b_band, a_band)
-env_anterior = 0
-
+# Cliente para hablar con la Nube (Render)
 sio = socketio.AsyncClient()
+# Variable para guardar la conexión con el ESP32
+socket_esp32 = None 
+
+async def handler(websocket, path):
+    global socket_esp32
+    socket_esp32 = websocket
+    print("¡ESP32 conectado al puente!")
+    
+    async for message in websocket:
+        try:
+            # Recibimos el valor ya procesado por el ESP32
+            valor_procesado = int(message)
+            # Reenviamos a Render
+            if sio.connected:
+                await sio.emit('datos_procesados', {'valor': valor_procesado})
+        except Exception as e:
+            print(f"Error procesando mensaje del ESP32: {e}")
+
+@sio.on('cambiar_umbral')
+async def al_recibir_umbral(data):
+    # Cuando la web manda el comando, se lo pasamos al ESP32
+    if socket_esp32:
+        comando = f"UMBRAL:{data['valor']}"
+        await socket_esp32.send(comando)
+        print(f"Comando enviado al ESP32: {comando}")
 
 async def conectar_nube():
     print("Intentando conectar a la nube...")
-    try:
-        await sio.connect(
-            'https://monitoreo-emg.onrender.com', 
-            socketio_path='/socket.io', 
-            transports=['polling']
-        )
-        print("¡Conexión establecida con éxito!")
-    except Exception as e:
-        print(f"Error al conectar: {e}")
-
-async def handler(websocket):
-    global zi_notch, zi_band, env_anterior
-    print("¡ESP32 conectado vía WebSocket!")
-
-    async for message in websocket:
-        try:
-            val = int(message)
-            cruda = val - OFFSET
-            
-            # Procesamiento
-            val_notch, zi_notch = lfilter(b_notch, a_notch, [cruda], zi=zi_notch)
-            val_filt, zi_band = lfilter(b_band, a_band, val_notch, zi=zi_band)
-            
-            rectificada = abs(val_filt[0])
-            env = 0.02 * rectificada + 0.98 * env_anterior
-            env_anterior = env
-            
-            # Enviar a Render
-            try:
-                if sio.connected:
-                    await sio.emit('datos_procesados', {
-                        'valor': float(val_filt[0]),
-                        'envolvente': float(env)
-                    })
-            except Exception as e:
-                print(f"Error al enviar a la nube: {e}")
-            
-        except Exception as e:
-            print(f"Error en procesamiento: {e}")
+    await sio.connect('https://monitoreo-emg.onrender.com', transports=['websocket'])
+    print("¡Conexión establecida con éxito!")
 
 async def main():
     await conectar_nube()
+    # Servidor local para que el ESP32 se conecte
     async with websockets.serve(handler, "0.0.0.0", 8000):
-        print("Esperando datos del ESP32 en puerto 8000...")
-        await asyncio.Future() 
+        print("Puente activo. Esperando ESP32 en puerto 8000...")
+        await asyncio.Future()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Servidor detenido.")
+        print("Servidor puente detenido.")
