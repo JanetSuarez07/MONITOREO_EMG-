@@ -1,11 +1,10 @@
 
 //  línea de conexión a esto:
-const socket = io({
-    transports: ['polling', 'websocket'], // Polling primero para asegurar conexión inicial
-    reconnection: true,
-    reconnectionAttempts: 10,
-    timeout: 10000
-});
+const socket = io("https://monitoreo-emg.onrender.com", {
+    transports: ['websocket'], // Forzamos solo websocket para evitar errores de polling 400
+    path: '/socket.io',        // Aseguramos la ruta correcta
+    reconnection: true
+});;
 
 document.addEventListener('DOMContentLoaded', () => {
 

@@ -3,8 +3,8 @@ from flask_socketio import SocketIO
 import os
 
 app = Flask(__name__)
-# ping_timeout=60 mantiene la conexión estable aunque el internet sea inestable
-socketio = SocketIO(app, cors_allowed_origins="*", ping_timeout=60)
+# Es VITAL usar 'eventlet' para el despliegue en Render
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 @app.route('/')
 def index():
