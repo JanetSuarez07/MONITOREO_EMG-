@@ -4,33 +4,30 @@ import socketio
 import numpy as np
 from scipy.signal import butter, lfilter, iirnotch, lfilter_zi
 
-# =========================================================
-# CONFIGURACIÓN DE FILTROS EMG (Tus valores probados)
-# =========================================================
+# Configuración de Filtros
 FS = 500
 OFFSET = 1795
 b_band, a_band = butter(2, [20/(FS*0.5), 200/(FS*0.5)], btype='band')
 b_notch, a_notch = iirnotch(60/(FS*0.5), 30)
 
-# Estados iniciales
 zi_notch = lfilter_zi(b_notch, a_notch)
 zi_band = lfilter_zi(b_band, a_band)
 env_anterior = 0
 
-# =========================================================
-# CLIENTE SOCKET.IO (Corregido: sin argumentos incompatibles)
-# =========================================================
 sio = socketio.AsyncClient()
 
 async def conectar_nube():
-    # Usamos 'polling' si WebSockets directos dan problemas con Render
-    # Cambia tu línea 27 por esta versión simplificada:
-    await sio.connect('https://monitoreo-emg.onrender.com', transports=['polling'])
-    print("Conectado a la nube (Render)")
+    print("Intentando conectar a la nube...")
+    try:
+        await sio.connect(
+            'https://monitoreo-emg.onrender.com', 
+            socketio_path='/socket.io', 
+            transports=['polling']
+        )
+        print("¡Conexión establecida con éxito!")
+    except Exception as e:
+        print(f"Error al conectar: {e}")
 
-# =========================================================
-# SERVIDOR WEBSOCKET (Conecta con ESP32)
-# =========================================================
 async def handler(websocket):
     global zi_notch, zi_band, env_anterior
     print("¡ESP32 conectado vía WebSocket!")
@@ -49,20 +46,20 @@ async def handler(websocket):
             env_anterior = env
             
             # Enviar a Render
-            await sio.emit('datos_procesados', {
-                'valor': float(val_filt[0]),
-                'envolvente': float(env)
-            })
+            try:
+                if sio.connected:
+                    await sio.emit('datos_procesados', {
+                        'valor': float(val_filt[0]),
+                        'envolvente': float(env)
+                    })
+            except Exception as e:
+                print(f"Error al enviar a la nube: {e}")
             
         except Exception as e:
             print(f"Error en procesamiento: {e}")
 
-# =========================================================
-# MAIN
-# =========================================================
 async def main():
     await conectar_nube()
-    
     async with websockets.serve(handler, "0.0.0.0", 8000):
         print("Esperando datos del ESP32 en puerto 8000...")
         await asyncio.Future() 

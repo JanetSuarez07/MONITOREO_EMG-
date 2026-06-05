@@ -1,8 +1,10 @@
 // 1. CONEXIÓN AL BACKEND (Configurada para robustez)
-const socket = io.connect(window.location.origin, { 
-    transports: ['websocket'],
-    reconnectionAttempts: 5, // Si pierde señal, intenta reconectar 5 veces
-    timeout: 5000 
+// Cambia tu línea de conexión a esto:
+const socket = io({
+    transports: ['polling', 'websocket'], // Polling primero para asegurar conexión inicial
+    reconnection: true,
+    reconnectionAttempts: 10,
+    timeout: 10000
 });
 
 document.addEventListener('DOMContentLoaded', () => {
