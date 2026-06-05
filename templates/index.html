@@ -55,9 +55,9 @@ const ctx = document.getElementById('emgChart').getContext('2d');
     const chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: Array(50).fill(''),
+            labels: Array(800).fill(''),
             datasets: [{
-                data: Array(50).fill(0),
+                data: Array(800).fill(0),
                 borderColor: '#0d6efd',
                 borderWidth: 2,
                 tension: 0.3,
