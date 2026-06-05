@@ -1,5 +1,5 @@
-// 1. CONEXIÓN AL BACKEND (Configurada para robustez)
-// Cambia tu línea de conexión a esto:
+
+//  línea de conexión a esto:
 const socket = io({
     transports: ['polling', 'websocket'], // Polling primero para asegurar conexión inicial
     reconnection: true,
