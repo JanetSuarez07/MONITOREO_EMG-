@@ -1,79 +1,74 @@
-import socket
-import threading
-import eventlet
-from flask import Flask, render_template
-from flask_socketio import SocketIO
+import asyncio
+import websockets
+import socketio
 import numpy as np
+from scipy.signal import butter, lfilter, iirnotch, lfilter_zi
 
 # =========================================================
-# CONFIGURACIÓN DE RED Y SERVIDOR
+# CONFIGURACIÓN DE FILTROS EMG (Tus valores probados)
 # =========================================================
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+FS = 500
+OFFSET = 1795
+b_band, a_band = butter(2, [20/(FS*0.5), 200/(FS*0.5)], btype='band')
+b_notch, a_notch = iirnotch(60/(FS*0.5), 30)
 
-# Configuración UDP para el ESP32
-UDP_IP = "0.0.0.0"       # Escucha en todas las interfaces
-UDP_PORT = 8800        # Debe coincidir con el puerto en tu ESP32
-esp32_address = None     # Se guardará automáticamente cuando el ESP32 hable
+# Estados iniciales
+zi_notch = lfilter_zi(b_notch, a_notch)
+zi_band = lfilter_zi(b_band, a_band)
+env_anterior = 0
 
 # =========================================================
-# SERVIDOR UDP (HILO SEPARADO)
+# CLIENTE SOCKET.IO (Corregido: sin argumentos incompatibles)
 # =========================================================
-def udp_receiver():
-    global esp32_address
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((UDP_IP, UDP_PORT))
-    print(f"Servidor UDP escuchando en puerto {UDP_PORT}...")
-    
-    while True:
+sio = socketio.AsyncClient()
+
+async def conectar_nube():
+    # Usamos 'polling' si WebSockets directos dan problemas con Render
+    # Cambia tu línea 27 por esta versión simplificada:
+    await sio.connect('https://monitoreo-emg.onrender.com', transports=['polling'])
+    print("Conectado a la nube (Render)")
+
+# =========================================================
+# SERVIDOR WEBSOCKET (Conecta con ESP32)
+# =========================================================
+async def handler(websocket):
+    global zi_notch, zi_band, env_anterior
+    print("¡ESP32 conectado vía WebSocket!")
+
+    async for message in websocket:
         try:
-            data, addr = sock.recvfrom(1024)
-            if not esp32_address:
-                esp32_address = addr
-                print(f"ESP32 conectado desde: {addr}")
+            val = int(message)
+            cruda = val - OFFSET
             
-            valor_raw = int(data.decode().strip())
+            # Procesamiento
+            val_notch, zi_notch = lfilter(b_notch, a_notch, [cruda], zi=zi_notch)
+            val_filt, zi_band = lfilter(b_band, a_band, val_notch, zi=zi_band)
             
-            # --- AQUÍ APLICARÍAS TUS FILTROS SCIPY ---
-            # Filtro sencillo de ejemplo:
-            valor_procesado = valor_raw # Reemplaza por tu filtro: lfilter(...)
+            rectificada = abs(val_filt[0])
+            env = 0.02 * rectificada + 0.98 * env_anterior
+            env_anterior = env
             
-            # Envío a la web en tiempo real
-            socketio.emit('nueva_senal', {'valor': valor_procesado})
+            # Enviar a Render
+            await sio.emit('datos_procesados', {
+                'valor': float(val_filt[0]),
+                'envolvente': float(env)
+            })
             
         except Exception as e:
-            print(f"Error en UDP: {e}")
+            print(f"Error en procesamiento: {e}")
 
 # =========================================================
-# COMUNICACIÓN BIDIRECCIONAL (SOCKET.IO)
+# MAIN
 # =========================================================
-@socketio.on('cambiar_umbral')
-def handle_umbral(data):
-    if esp32_address:
-        msg = f"UMBRAL:{data['valor']}"
-        send_udp(msg)
-
-@socketio.on('control_sistema')
-def handle_control(data):
-    if esp32_address:
-        msg = f"CMD:{data['estado']}"
-        send_udp(msg)
-
-def send_udp(message):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(message.encode(), esp32_address)
-    print(f"Enviado al ESP32: {message}")
-
-# =========================================================
-# SERVIDOR WEB (RUTAS)
-# =========================================================
-@app.route('/')
-def index():
-    return render_template('index.html') # Asegúrate de que index.html esté en la carpeta 'templates'
-
-if __name__ == '__main__':
-    # Iniciar el receptor UDP en un hilo independiente
-    threading.Thread(target=udp_receiver, daemon=True).start()
+async def main():
+    await conectar_nube()
     
-    # Iniciar el servidor Socket.IO
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    async with websockets.serve(handler, "0.0.0.0", 8000):
+        print("Esperando datos del ESP32 en puerto 8000...")
+        await asyncio.Future() 
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Servidor detenido.")
